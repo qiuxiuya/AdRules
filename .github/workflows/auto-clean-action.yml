@@ -1,0 +1,37 @@
+name: Clean Actions Runs
+
+on:
+  workflow_run:
+    workflows: ["Update Rules"]
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete old workflow runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+
+          cutoff=$(date -u -d '1 day ago' +%s)
+
+          runs=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$repo/actions/runs?per_page=100")
+
+          echo "$runs" | jq -r '.workflow_runs[] | "\(.id) \(.created_at)"' | while read id created; do
+            ts=$(date -d "$created" +%s)
+            if [ $ts -lt $cutoff ]; then
+              echo "Deleting run $id"
+              curl -s -X DELETE -H "Authorization: token $GH_TOKEN" \
+                "https://api.github.com/repos/$repo/actions/runs/$id"
+            fi
+          done
